@@ -1,0 +1,6 @@
+# Keil MDK generated build output and per-user workspace state.
+/project/keil/Objects/
+/project/keil/Listings/
+/project/keil/*.uvoptx
+/project/keil/*.uvguix.*
+/project/keil/*_Sequences_*.log
