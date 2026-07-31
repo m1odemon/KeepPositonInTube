@@ -1,0 +1,90 @@
+camera:
+  device: /dev/video0
+  width: 640
+  height: 480
+  fps: 120
+  pixel_format: MJPG
+  backend: gstreamer
+  # 先用 v4l2-ctl --list-ctrls-menus 查看本相机支持的名称和值。
+  # 实测后填写；空字典表示暂不改相机控制项。
+  controls: {}
+  # 示例（不能直接照抄，必须按相机能力填写）：
+  # controls:
+  #   exposure_auto: 1
+  #   exposure_absolute: 50
+  #   gain: 0
+  #   white_balance_temperature_auto: 0
+  #   white_balance_temperature: 4600
+
+tube_reference:
+  # 在 P- 端贴哑光红色标记，在 P+ 端贴哑光蓝色标记。
+  p_negative_hsv_ranges:
+    - [0, 90, 55, 12, 255, 255]
+    - [168, 90, 55, 179, 255, 255]
+  p_positive_hsv_ranges:
+    - [92, 80, 45, 135, 255, 255]
+  morphology_kernel: 5
+  marker_area_min: 80
+  marker_area_max: 5000
+  expected_marker_area: 700
+  axis_length_min_px: 260
+  axis_length_max_px: 620
+  expected_axis_length_px: 500
+  max_abs_angle_deg: 20
+  endpoint_jump_gate_px: 80
+  strip_size: [640, 120]
+  tube_half_width_px: 48
+
+ball_blob:
+  # 上一轮新管实测：A≈2910、W≈36、H≈97、aspect≈0.37。
+  threshold: 100
+  polarity: dark
+  use_otsu: true
+  blur_kernel: 5
+  morphology_kernel: 3
+  open_iterations: 0
+  close_iterations: 3
+  min_area: 1400
+  max_area: 4000
+  min_width: 22
+  max_width: 52
+  min_height: 65
+  max_height: 115
+  min_aspect_ratio: 0.24
+  max_aspect_ratio: 0.65
+  min_circularity: 0.08
+  min_solidity: 0.40
+  min_bbox_fill_ratio: 0.25
+  max_bbox_fill_ratio: 0.95
+  min_internal_fill_ratio: 0.25
+  edge_margin_px: 20
+  max_vertical_offset_px: 42
+  expected_area: 2910
+  expected_width: 36
+  expected_height: 97
+  expected_aspect_ratio: 0.37
+  min_candidate_confidence: 0.40
+  ambiguity_distance_px: 50
+
+tracking:
+  acquire_valid_frames: 3
+  lost_after_frames: 3
+  position_jump_gate_mm: 30
+  smoothing_alpha: 0.30
+
+confidence:
+  ti_accept_threshold: 0.70
+  reference_weight: 0.35
+  ball_weight: 0.65
+
+serial:
+  port: /dev/serial0
+  baudrate: 115200
+  write_timeout_s: 0.05
+
+runtime:
+  position_hard_min_mm: -120.0
+  position_hard_max_mm: 120.0
+  log_directory: logs
+  sequence_start: 0
+  report_interval_s: 1.0

@@ -1,0 +1,337 @@
+树莓派 Blob 视觉 → TI 完整命令集
+=================================
+
+工程位置：
+  ~/yolo_usb/rpi_for_ti
+
+Python 环境：
+  ~/yolo_usb/.venv
+
+说明：
+  下面是 Linux/Bash 命令，不要复制 Windows 的 .\Scripts\python.exe。
+  命令中的反斜杠 \ 表示下一行仍属于同一条 Bash 命令。
+
+
+0. 进入工程并激活现有环境
+------------------------
+
+cd ~/yolo_usb/rpi_for_ti
+source ../.venv/bin/activate
+
+
+1. 首次安装本工程
+----------------
+
+python -m pip install -e .
+
+验证关键依赖：
+
+python -c "import cv2, numpy, yaml, serial; print('cv2', cv2.__version__); print('numpy', numpy.__version__); print('yaml', yaml.__version__); print('serial', serial.VERSION)"
+
+如果只缺 yaml 或 serial：
+
+python -m pip install PyYAML pyserial
+
+不要为了安装 OpenCV 随意替换当前能用 GStreamer 的 cv2。
+
+
+2. 环境、配置和协议固定向量自检
+------------------------------
+
+cd ~/yolo_usb/rpi_for_ti
+source ../.venv/bin/activate
+hball-ti --help
+python tools/self_check.py
+python -m unittest discover -s tests -v
+
+预期单元测试全部显示 OK。
+
+
+3. 检查摄像头能力
+----------------
+
+ls -l /dev/video*
+v4l2-ctl -d /dev/video0 --list-formats-ext
+v4l2-ctl -d /dev/video0 --list-ctrls-menus
+
+本项目默认请求：
+  640x480
+  MJPG
+  120 FPS
+
+这只表示相机采集速率。视觉主循环 FPS 由图像处理、显示和磁盘写入共同决定。
+
+
+4. 检查 OpenCV 和 GStreamer
+--------------------------
+
+python -c "import cv2; print([x.strip() for x in cv2.getBuildInformation().splitlines() if 'GStreamer:' in x])"
+
+必须看到：
+  GStreamer: YES
+
+单独测试相机 640x480 MJPEG 约 120 FPS：
+
+gst-launch-1.0 -v \
+  v4l2src device=/dev/video0 io-mode=2 num-buffers=240 \
+  ! image/jpeg,width=640,height=480,framerate=61612/513 \
+  ! jpegdec \
+  ! videoconvert \
+  ! fakesink sync=false
+
+正常结果是约 2 秒后 EOS，没有 not-negotiated 或 Could not read from resource。
+
+
+5. 固定曝光、增益和白平衡
+------------------------
+
+先查看本相机真实控制项：
+
+v4l2-ctl -d /dev/video0 --list-ctrls-menus
+
+再把实测可用的名称和值写入 config.yaml 的：
+
+camera:
+  controls:
+
+不要直接照抄示例值。不同 USB 相机的控制项名称和范围可能不同。
+controls 为空时程序不会修改相机控制项。
+
+
+6. 阶段 A：只调视觉，不接 TI
+---------------------------
+
+实物要求：
+  红色哑光标记 = P-
+  蓝色哑光标记 = P+
+  标记必须跟水管同步运动
+
+启动带叠加画面、CSV 和调试录像：
+
+mkdir -p videos logs
+hball-ti \
+  --dry-run \
+  --show \
+  --record-video videos/blob_tune.mp4
+
+按 Q 或 Esc 退出。
+
+画面应满足：
+  P- 红框位置正确
+  P+ 蓝框位置正确
+  黄色轴线沿水管
+  O 点正确
+  球只有一个候选框
+  A/W/H 接近 2910/36/97
+  连续三帧后 state=TRACK
+  清晰时 confidence 尽量 >= 0.80
+  遮挡任一参考标记时 position=0、confidence=0
+
+只看实时画面和终端，不保存任何文件：
+
+hball-ti --dry-run --show --no-csv
+
+
+7. 修改真实毫米标定
+------------------
+
+nano calibration.json
+
+必须实测后修改：
+  position_min_mm
+  position_max_mm
+  zero_u
+  tube_usable_length_mm
+  ball_diameter_mm
+
+保存后再次执行阶段 A，并在多个已知位置核对输出。
+
+
+8. 阶段 B：只验 21 字节串口，不开相机
+-----------------------------------
+
+确认串口节点：
+
+ls -l /dev/serial0
+
+确认串口没有被登录控制台占用。使用 raspi-config 时：
+  Interface Options
+  Serial Port
+  Login shell over serial: No
+  Serial port hardware: Yes
+
+树莓派与 TI 接线：
+  GPIO14/TXD -> TI B16/UART2_RX
+  GPIO15/RXD <- TI B15/UART2_TX
+  GND        --- TI GND
+  3.3 V TTL，禁止接 5 V 或 RS-232 电平
+
+发送一次文档固定向量：
+
+python tools/send_test_vector.py --port /dev/serial0 --repeat 1
+
+连续发送 100 帧、50 Hz，用于观察 TI 有效帧计数：
+
+python tools/send_test_vector.py \
+  --port /dev/serial0 \
+  --repeat 100 \
+  --rate 50
+
+TI 端应观察：
+  valid_frame_count 增加
+  crc_error_count 不持续增加
+  format_error_count 不持续增加
+  position_mm = 0
+  confidence = 1
+
+
+9. 视觉 + TI 正式联调
+--------------------
+
+保留窗口和 CSV：
+
+hball-ti --show
+
+若串口提示 Permission denied：
+
+groups
+sudo usermod -aG dialout "$USER"
+
+然后注销 SSH 并重新登录，重新激活环境再运行。
+不要用 chmod 777 作为长期方案。
+
+
+10. 比赛运行模式
+---------------
+
+无窗口、无本地录像、无 CSV：
+
+cd ~/yolo_usb/rpi_for_ti
+source ../.venv/bin/activate
+hball-ti --no-csv
+
+该模式把性能优先留给最新帧视觉和 TI 串口。
+
+
+11. 摄像头高度改变后重新拍摄和设置动态 ROI
+-------------------------------------------
+
+注意：本工程用红色 P- 和蓝色 P+ 每帧建立动态 ROI，
+不使用会随水管倾斜而失效的固定矩形。
+
+cd ~/yolo_usb/rpi_for_ti
+source ../.venv/bin/activate
+
+python tools/setup_dynamic_roi.py
+
+按键：
+  [    ROI 变窄，每次减少 2 px
+  ]    ROI 变宽，每次增加 2 px
+  C    只拍照，不改配置
+  P    拍照并保存新 ROI 配置
+  Q    退出
+
+推荐顺序：
+  1. 红色哑光标记贴在 P-，蓝色哑光标记贴在 P+
+  2. 空管按 C 保存一组照片
+  3. 放入钢球，调节黄色 ROI，让它覆盖完整管道和球
+  4. 有效状态保持至少 20 帧后按 P
+
+照片目录：
+  calibration_images/日期_时间/
+
+旧配置备份：
+  config.before_roi_setup.yaml
+
+保存后检查第二套 Blob：
+
+hball-ti --dry-run --show --no-csv
+
+因为相机高度改变，钢球 A/W/H 可能不再接近 2910/36/97。
+如果识别框消失或显示几何拒绝，需要按新画面重新调整
+config.yaml 的 ball_blob 面积、宽度、高度及 expected 值。
+
+
+12. 测量钢球从一个点到另一个点的时间
+-----------------------------------
+
+先确认更改摄像头高度后，第二套 Blob 仍能稳定识别：
+
+hball-ti --dry-run --show --no-csv
+
+观察球框上的 A/W/H。如果已经明显偏离 2910/36/97，
+先按新高度调整 config.yaml 的面积、宽度和高度范围。
+
+测试 -50 mm 到 +50 mm，重复 3 次：
+
+python tools/travel_time_test.py \
+  --start-mm -50 \
+  --end-mm 50 \
+  --tolerance-mm 5 \
+  --stable-frames 5 \
+  --min-confidence 0.70 \
+  --timeout-s 10 \
+  --runs 3
+
+状态含义：
+  WAIT_START  把球放到起点
+  READY       起点已稳定，可以释放钢球
+  TIMING      正在计时
+  DONE        到达终点并得到结果
+
+默认测量起点容差区外边界到终点容差区内边界。
+例如 -50 到 +50、容差 5 mm，实际门线为 -45 到 +45，
+测量距离为 90 mm。这样可防止位置抖动重复触发。
+
+快捷键：
+  R    放弃当前一次并重新等待
+  Q    退出
+  Esc  退出
+
+结果默认保存：
+  logs/travel_time_日期_时间.csv
+
+无显示窗口连续测试 10 次：
+
+python tools/travel_time_test.py \
+  --start-mm -50 \
+  --end-mm 50 \
+  --runs 10 \
+  --no-show
+
+
+13. 常见问题
+------------
+
+问题：OpenCV was built without GStreamer
+处理：
+  当前 .venv 加载的是 pip cv2 且 GStreamer=NO。
+  先确认系统 python3 的 cv2 是否为 YES，再决定重建带
+  --system-site-packages 的环境；不要边比赛边重装整套依赖。
+
+问题：cannot open camera / Could not read from resource
+处理：
+
+fuser /dev/video0
+dmesg --ctime | tail -n 80
+v4l2-ctl -d /dev/video0 --all
+
+关闭占用相机的其他程序，检查 USB 线、供电和设备节点。
+
+问题：NO_TUBE_REFERENCE
+处理：
+  检查红/蓝标记是否完整、哑光、无遮挡；
+  用画面确认 HSV 掩膜；
+  再小范围调整 config.yaml 的 HSV、marker_area 和 angle。
+
+问题：AREA/HEIGHT 或 NO VALID BLOB
+处理：
+  记录画面显示的 A/W/H；
+  当前换管配置是 A=1400~4000、W=22~52、H=65~115；
+  若尺度长期偏离，先检查相机和标记位置是否改变，再调整范围。
+
+问题：TI 一直 WAIT_SENSOR
+处理：
+  检查 TI Task3 是否把 UART2 字节送入 ball_vision_link；
+  检查 115200-8-N-1、交叉接线、共地、confidence>=0.70；
+  检查 valid_frame_count、CRC/格式错误、序号和时间戳。
