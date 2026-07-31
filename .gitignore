@@ -1,0 +1,36 @@
+# IDE and local tooling
+.idea/
+.vscode/
+.agents/
+.codex/
+.review_h_analysis/
+*.jdebug
+*.jdebug.user
+
+# CMake and firmware build outputs
+build/
+build-*/
+**/build/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+compile_commands.json
+*.elf
+*.hex
+*.bin
+*.map
+*.obj
+*.o
+
+# Python caches
+__pycache__/
+.pytest_cache/
+*.py[cod]
+
+# Temporary files
+tmp/
+*.log
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
