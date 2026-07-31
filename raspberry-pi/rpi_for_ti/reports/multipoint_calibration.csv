@@ -1,0 +1,6 @@
+actual_position_mm,measured_position_mm,error_mm,confidence,tube_angle_deg,repeat,notes
+-100,,,,,1,
+-50,,,,,1,
+0,,,,,1,
+50,,,,,1,
+100,,,,,1,

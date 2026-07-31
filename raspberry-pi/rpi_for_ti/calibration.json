@@ -1,0 +1,12 @@
+{
+  "_instructions": "Replace all pending values with measurements from the real tube before closed-loop control.",
+  "position_min_mm": -100.0,
+  "position_max_mm": 100.0,
+  "zero_u": 0.5,
+  "tube_usable_length_mm": 200.0,
+  "ball_diameter_mm": 20.0,
+  "positive_end": "blue_marker",
+  "negative_end": "red_marker",
+  "camera_matrix": null,
+  "distortion_coeffs": null
+}
